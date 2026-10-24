@@ -72,25 +72,28 @@ diagram rendering happens inside the plugin.
 
 ## Install
 
-The plugin is not published to npm, so it is installed as a **local bundle**
-from this folder. Installation links the directory into the current profile;
-nothing needs to be compiled first, and the bundle ships its browser build.
+The plugin is published on GitHub and installed straight from the repository —
+no npm package, no local checkout, no build step:
+
+```text
+https://github.com/denistv/dsh-mermaid
+```
+
+DSH reads the repository, installs it as a profile bundle, and pins the commit
+it installed.
 
 ### In the desktop app
 
 1. Open **Plugins** in the sidebar.
 2. Click **Add plugin**.
-3. Enter the absolute path to this folder — the one that contains
-   `package.json` — and press **Enter**:
+3. Paste the repository URL and press **Enter**:
 
    ```text
-   /Users/you/src/dsh-mermaid
+   https://github.com/denistv/dsh-mermaid
    ```
 
-   On Windows the same field takes `C:\src\dsh-mermaid`.
-4. Click **Install** and wait for the result screen. The Host reads the package,
-   links the folder into the profile, and adds the bundle to the profile's
-   bundle list.
+4. Click **Install** and wait for the result screen. The Host reads the
+   repository and installs the bundle into the current profile.
 5. Click **Enable now**. If the dialog is already closed, open the
    **dsh-mermaid** card under **Installed plugins** and switch it on.
 6. Restart DSH if the page asks for it; otherwise reload the window. The client
@@ -99,19 +102,15 @@ nothing needs to be compiled first, and the bundle ships its browser build.
 That is the whole setup — no configuration follows. The plugin applies to every
 session in the profile and activates immediately when the bundle is on.
 
-> **Keep the folder in place.** A local-directory install is a link, not a copy.
-> Moving or deleting the folder breaks the bundle until it is reinstalled.
-
 ### From a DSH session
 
-You can also let the agent do the same thing — ask it to install the bundle and
-give it the absolute path:
+You can also ask the agent to install it from the same URL:
 
-> Install the plugin bundle from `/Users/you/src/dsh-mermaid`
+> Install the plugin from https://github.com/denistv/dsh-mermaid
 
-The agent calls `plugin_manager` with `action: install_bundle` and the absolute
-directory, which performs the same package installation and bundle selection as
-the dialog. The call needs Full access or an approval.
+The agent calls `plugin_manager` with `action: install_bundle` and the
+repository URL, which performs the same package installation and bundle
+selection as the dialog. The call needs Full access or an approval.
 
 ### Check that it works
 
@@ -121,10 +120,11 @@ answer.
 
 ### Update or remove
 
-- **Update:** local installs are linked, so after `git pull` (and
-  `npm run build` if the source changed) just reload the window.
-- **Remove:** open the **dsh-mermaid** card under **Installed plugins**, choose
-  **Uninstall**, and confirm. The folder on disk stays where it is.
+- **Update:** the installed bundle is pinned to a commit. Open its card under
+  **Installed plugins**, choose **Uninstall**, then add the same URL again to
+  install the latest commit.
+- **Remove:** **Uninstall** on the card; confirming removes the dependency and
+  the bundle entry.
 
 Disabling or removing the bundle unregisters both surfaces and removes every
 style rule the plugin added.
