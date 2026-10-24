@@ -52,8 +52,6 @@ font, and can be expanded into a resizable full-window view.
   tables, footnotes, and sanitization stay exactly as shipped.
 - **Offline by design.** `mermaid`, `marked`, and `DOMPurify` are compiled into
   a single client artifact.
-- **Bilingual.** UI strings ship in English and Russian and follow the shell
-  locale.
 - **Graceful failures.** A broken diagram shows the parser error above its
   source instead of disappearing; an empty fence says so.
 

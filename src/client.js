@@ -83,29 +83,6 @@ window.__ModuleLoader__.load({
 			'overlay.defaultSize': 'Default size',
 		};
 
-		const RU = {
-			'card.label': 'Mermaid',
-			'card.diagram': 'Схема',
-			'card.source': 'Код',
-			'card.expand': 'Развернуть',
-			'card.copy': 'Копировать',
-			'card.copied': 'Скопировано',
-			'card.rendering': 'Рендерю диаграмму…',
-			'card.error': 'Не удалось отрисовать диаграмму',
-			'card.empty': 'Пустая диаграмма',
-			'overlay.label': 'Диаграмма Mermaid',
-			'overlay.close': 'Закрыть',
-			'overlay.resize': 'Потяните за угол, чтобы изменить размер',
-			'code.copy': 'Копировать',
-			'code.copied': 'Скопировано',
-			'codeBlock.title': 'Код',
-			'codeBlock.wrap': 'Переносить',
-			'codeBlock.unwrap': 'Без переноса',
-			'footnotes': 'Сноски',
-			'overlay.maximize': 'На максимум',
-			'overlay.defaultSize': 'Обычный размер',
-		};
-
 		// ── runtimes ──────────────────────────────────────────────────────────
 		// Mermaid, marked, and DOMPurify are bundled at build time; `mermaid` and
 		// `marked` do their real work only when the first diagram/document renders.
@@ -972,7 +949,6 @@ html[data-windows-titlebar]:not([data-fullscreen]) .dsh-mermaid-overlay { paddin
 			const translate = locale === undefined ? (key) => key : locale.bind(LOCALE_NS);
 			if (locale !== undefined) {
 				ctx.effect(() => locale.register(LOCALE_NS, 'en', EN), 'dsh-mermaid: en dictionary');
-				ctx.effect(() => locale.register(LOCALE_NS, 'ru', RU), 'dsh-mermaid: ru dictionary');
 			}
 			ctx.effect(installStyles, 'dsh-mermaid: styles');
 

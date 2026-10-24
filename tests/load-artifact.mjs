@@ -123,7 +123,7 @@ assert.equal(documentBody.options.priority, -1, 'lower priority replaces the shi
 
 assert.equal(previews.length, 0, 'does not add a second document-preview implementation');
 
-assert.equal(dictionaries.length, 2, 'registers English and Russian dictionaries');
+assert.equal(dictionaries.length, 1, 'registers the English dictionary');
 assert.ok(styleTags.length === 1, 'installs one stylesheet');
 
 const { splitMermaid, mermaidBlocks, splitFrontmatter, markdownImageUrl } = moduleExports.__test;
