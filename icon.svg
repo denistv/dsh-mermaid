@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Mermaid flowchart">
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="#FFFFFF" stroke="#D8D2F2" stroke-width="0.75"/>
+
+  <!-- Lines run behind the nodes so their starts never paint over a border. -->
+  <g fill="none" stroke="#4B5563" stroke-width="0.8" stroke-linecap="butt">
+    <path d="M16.25 32h3.25"/>
+    <path d="M35.25 32C39.4 32 39.7 14.5 43 14.5"/>
+    <path d="M35.25 32C39.4 32 39.7 50.5 43 50.5"/>
+  </g>
+
+  <!-- Start -> decision -> two options. -->
+  <circle cx="11.25" cy="32" r="5" fill="#ECECFF" stroke="#9370DB" stroke-width="1.1"/>
+  <path d="M28.75 25.5 35.25 32 28.75 38.5 22.25 32Z" fill="#ECECFF" stroke="#9370DB" stroke-width="1.1" stroke-linejoin="round"/>
+  <rect x="45.75" y="10" width="12" height="9" rx="2" fill="#ECECFF" stroke="#9370DB" stroke-width="1.1"/>
+  <rect x="45.75" y="46" width="12" height="9" rx="2" fill="#ECECFF" stroke="#9370DB" stroke-width="1.1"/>
+
+  <!-- Heads sit on top and stop on the OUTER border edge. -->
+  <g fill="#4B5563">
+    <path d="M19.5 30.7 21.7 32 19.5 33.3Z"/>
+    <path d="M43 13.2 45.2 14.5 43 15.8Z"/>
+    <path d="M43 49.2 45.2 50.5 43 51.8Z"/>
+  </g>
+</svg>

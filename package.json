@@ -1,0 +1,57 @@
+{
+  "name": "dsh-mermaid",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Renders Mermaid diagrams in DSH chat and in Markdown document previews.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/denistv/dsh-mermaid.git"
+  },
+  "homepage": "https://github.com/denistv/dsh-mermaid#readme",
+  "bugs": {
+    "url": "https://github.com/denistv/dsh-mermaid/issues"
+  },
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./lib/client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "demo"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-theme",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-documentpreview"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node tests/load-artifact.mjs"
+  },
+  "devDependencies": {
+    "dompurify": "^3.4.13",
+    "esbuild": "^0.28.2",
+    "marked": "^18.1.1",
+    "mermaid": "^11.16.1"
+  }
+}

@@ -1,0 +1,9 @@
+# dsh-mermaid bundle patch.
+#
+# The Host half is intentionally empty: it exists only so the package appears
+# as a Loader row and the Client module loader discovers `dsh.client`. The
+# browser half registers the chat turn-tail seat and the Markdown document
+# preview implementation.
+- insert:
+    - id: dsh-mermaid
+      name: dsh-mermaid

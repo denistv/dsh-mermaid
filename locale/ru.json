@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Диаграммы Mermaid",
+    "description": "Рендерит диаграммы Mermaid в чате и при просмотре Markdown-документов."
+  }
+}
