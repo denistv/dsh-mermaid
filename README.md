@@ -38,6 +38,9 @@ font, and can be expanded into a resizable full-window view.
 
 - **Two surfaces, one runtime.** Chat and document preview share the same
   Mermaid renderer, theme tokens, and card UI.
+- **Self-healing renders.** Successful SVGs are cached by source and theme;
+  identical in-flight requests share one promise. A parse/render attempt that
+  exceeds 15 seconds fails that card instead of blocking every later card.
 - **Cards that stay out of the way.** Each card has **Expand**, **Source /
   Diagram**, and **Copy** controls. **Source** shows the original fence; **Copy**
   puts it on the clipboard.
@@ -52,8 +55,13 @@ font, and can be expanded into a resizable full-window view.
   tables, footnotes, and sanitization stay exactly as shipped.
 - **Offline by design.** `mermaid`, `marked`, and `DOMPurify` are compiled into
   a single client artifact.
+- **Bundled agent skill.** The Host half registers a `dsh-mermaid` skill, so the
+  model can load the exact fence contract on demand. The skill is also
+  user-invocable as `/dsh-mermaid`.
 - **Graceful failures.** A broken diagram shows the parser error above its
-  source instead of disappearing; an empty fence says so.
+  source instead of disappearing; an empty fence says so. A rendering exception
+  is contained by a card-level boundary, so one bad card cannot retire the whole
+  chat slot.
 
 ## Screenshots
 
@@ -126,15 +134,16 @@ answer.
 - **Remove:** **Uninstall** on the card; confirming removes the dependency and
   the bundle entry.
 
-Disabling or removing the bundle unregisters both surfaces and removes every
-style rule the plugin added.
+Disabling or removing the bundle unregisters both surfaces, removes every style
+rule the plugin added, and removes the bundled skill provider.
 
 ## Usage
 
 ### In chat
 
-Ask for a diagram, or paste a fence into any message. After the turn completes,
-the fence is rendered as a card below the answer:
+Ask the assistant for a diagram. The bundled `dsh-mermaid` skill teaches it the
+exact output contract, and after the turn completes the fence is rendered as a
+card below the answer:
 
 ````markdown
 ```mermaid
@@ -148,10 +157,13 @@ Both `mermaid` and `mmd` info strings are claimed. Other languages stay plain
 code blocks. Only **closed** fences render — while a message is still streaming,
 an unfinished fence remains a normal code block.
 
-Chat cards are read from the turn's durable data
-(`closing.finalNode.blocks`), not scraped from the DOM, so streaming,
-virtualized re-renders, pagination, and session switches cannot desynchronize
-them.
+The chat surface reads diagrams from **assistant turns**. A fence that you paste
+into your own message is shown as an ordinary code block, not as a card; ask the
+assistant to put the diagram in its answer instead.
+
+Chat cards are read from the turn's durable assistant steps, not scraped from
+the DOM, so streaming, virtualized re-renders, pagination, and session switches
+cannot desynchronize them.
 
 ### In Markdown previews
 
@@ -183,7 +195,7 @@ into the dialog on open and returns to the trigger on close.
 
 ```mermaid
 flowchart LR
-  turn[Assistant turn] -->|closing text blocks| card[Chat card]
+  turn[Assistant turn] -->|all assistant text blocks| card[Chat card]
   file[.md document] -->|Markdown body override| preview[Preview cards]
   card --> render[Mermaid render]
   preview --> render
@@ -193,13 +205,27 @@ flowchart LR
 
 | Surface | Extension point | Notes |
 | --- | --- | --- |
-| Chat | `conversation.chat.turnTail` (order 35) | One cell per turn; reads durable message blocks. |
+| Chat | `conversation.chat.turnTail` (order 35) | One cell per turn; reads every assistant text step and de-duplicates identical sources. |
 | Document | `sidebar.right.tab.document` | Shadows the shipped Markdown body at priority `-1` under its own key, so the viewer dropdown keeps a single **Markdown** entry. |
 | Modal | `shell.overlay` | Click-through layer; the overlay root opts back into pointer events. |
+| Skill | `ctx.skills` provider | The Host half registers the bundled `dsh-mermaid` skill from `assets/skills/dsh-mermaid/SKILL.md`; it is model- and user-invocable. |
 
 The whole client is one bundle: `mermaid`, `marked`, and `DOMPurify` are
 compiled into it, and only React stays external because the harness supplies it.
 Nothing is fetched at runtime, so diagrams render offline.
+
+The Host half is small but no longer empty: it keeps the Loader row and registers
+a bundled skill provider. The skill body ships as
+`assets/skills/dsh-mermaid/SKILL.md` and is re-read on every load, so editing the
+instructions does not require a client rebuild.
+
+Chat extraction scans every assistant text step of the Turn, not just the
+closing message, and renders each distinct diagram source once. The shared
+render engine runs `mermaid.parse` before `mermaid.render` with
+`suppressErrorRendering: true`, so syntax errors reject cleanly instead of
+leaving Mermaid's temporary error SVG in the document. Renders stay serialized
+because Mermaid mutates shared layout state, but a timeout and an LRU cache keep
+one slow or repeated diagram from wedging the transcript.
 
 If the harness ever stops exposing `MarkdownText`, the document body falls back
 to the bundled `marked` + `DOMPurify` renderer instead of going blank. If a
@@ -229,7 +255,13 @@ disabling the plugin removes its cards, its overlay, and every rule it added.
   zoom yet. The resize handle is pointer-only; the header's **Maximize** button
   is the keyboard-friendly path.
 - **Very large diagrams** can take a moment to lay out, because renders are
-  serialized to protect Mermaid's shared layout state.
+  serialized to protect Mermaid's shared layout state. Each attempt has a
+  15-second budget; when it expires the card shows the error and the queue moves
+  on. The underlying Mermaid call cannot be cancelled, so a pathological diagram
+  may still keep the library busy until the window is reloaded.
+- **Chat extraction is source-based.** A diagram is read from assistant text
+  blocks only; fences in reasoning blocks or tool results are ignored. Identical
+  sources are rendered once per Turn.
 - **Coexistence.** Another chat plugin that appends diagram cards (for example
   `@baconbao/dsh-mermaid-image-preview`) will add a second card for the same
   fence. Keep one of them enabled. On the document side there is no second

@@ -21,6 +21,10 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import mermaid from 'mermaid';
+import { createTranslator } from './i18n.js';
+import { markdownImageUrl, mermaidBlocks, splitFrontmatter, splitMermaid } from './markdown.js';
+import { createMermaidRenderer } from './render.js';
+import { turnDiagrams } from './turn.js';
 
 window.__ModuleLoader__.load({
 	id: 'dsh-mermaid',
@@ -69,6 +73,7 @@ window.__ModuleLoader__.load({
 			'card.copied': 'Copied',
 			'card.rendering': 'Rendering diagram…',
 			'card.error': 'Mermaid could not render this diagram',
+			'card.crashed': 'Mermaid card failed',
 			'card.empty': 'Empty diagram',
 			'overlay.label': 'Mermaid diagram',
 			'overlay.close': 'Close',
@@ -87,8 +92,12 @@ window.__ModuleLoader__.load({
 		// Mermaid, marked, and DOMPurify are bundled at build time; `mermaid` and
 		// `marked` do their real work only when the first diagram/document renders.
 		let purifier;
-		let renderSequence = 0;
-		let renderQueue = Promise.resolve();
+		// One renderer owns the serial queue, SVG cache, in-flight de-duplication,
+		// timeout, and Mermaid element-id lifecycle.
+		const mermaidRenderer = createMermaidRenderer({
+			mermaid,
+			themeVariables: mermaidThemeVariables,
+		});
 
 		// ── expanded-diagram overlay store ───────────────────────────────────
 		// The card and the overlay are two independent slot entries, so they meet
@@ -138,72 +147,6 @@ window.__ModuleLoader__.load({
 			return purifier;
 		}
 
-		// ── fenced-block parsing ──────────────────────────────────────────────
-		/** Open-fence line: indentation, 3+ backticks/tildes, optional info word. */
-		const OPEN_FENCE = /^(\s*)(`{3,}|~{3,})\s*([A-Za-z0-9_+-]*)\s*$/;
-		/** Mermaid fence info strings this plugin claims. */
-		const MERMAID_LANGUAGES = new Set(['mermaid', 'mmd']);
-
-		/**
-		 * Split Markdown into ordinary blocks and Mermaid fences. Only closed
-		 * fences are recognised; an unfinished fence stays in the Markdown part,
-		 * which is what a streaming message or a partially paged file needs.
-		 * @param {string} text - Markdown source.
-		 * @returns {{type: 'markdown'|'mermaid', text?: string, code?: string}[]}
-		 */
-		function splitMermaid(text) {
-			const lines = String(text ?? '').split('\n');
-			const segments = [];
-			let buffer = [];
-			let index = 0;
-			while (index < lines.length) {
-				const open = OPEN_FENCE.exec(lines[index]);
-				if (open === null) {
-					buffer.push(lines[index]);
-					index += 1;
-					continue;
-				}
-				const marker = open[2][0];
-				const minimum = open[2].length;
-				const info = open[3].toLowerCase();
-				const closing = new RegExp(`^\\s*${marker === '`' ? '`' : '~'}{${minimum},}\\s*$`);
-				let close = index + 1;
-				for (; close < lines.length; close += 1) {
-					if (closing.test(lines[close])) break;
-				}
-				if (close >= lines.length) {
-					// Unterminated fence: leave it to the Markdown parser.
-					buffer.push(lines[index]);
-					index += 1;
-					continue;
-				}
-				if (MERMAID_LANGUAGES.has(info)) {
-					if (buffer.length > 0) {
-						segments.push({ type: 'markdown', text: buffer.join('\n') });
-						buffer = [];
-					}
-					segments.push({ type: 'mermaid', code: lines.slice(index + 1, close).join('\n') });
-				} else {
-					for (let line = index; line <= close; line += 1) buffer.push(lines[line]);
-				}
-				index = close + 1;
-			}
-			if (buffer.length > 0) segments.push({ type: 'markdown', text: buffer.join('\n') });
-			return segments;
-		}
-
-		/**
-		 * Every Mermaid fence in a Markdown string.
-		 * @param {string} text - Markdown source.
-		 * @returns {string[]} diagram sources.
-		 */
-		function mermaidBlocks(text) {
-			return splitMermaid(text)
-				.filter(segment => segment.type === 'mermaid')
-				.map(segment => segment.code)
-				.filter(code => code.trim() !== '');
-		}
-
 		// ── Markdown rendering ────────────────────────────────────────────────
 		/**
 		 * Parse and sanitize one Markdown segment. Raw HTML in model output is
@@ -218,61 +161,6 @@ window.__ModuleLoader__.load({
 				USE_PROFILES: { html: true },
 				ADD_ATTR: ['target', 'rel', 'loading'],
 			});
-		}
-
-		/** Whether a path is absolute in either spelling the Host accepts. */
-		function isAbsoluteWorkspacePath(path) {
-			return path.startsWith('/')
-				|| /^[A-Za-z]:[/\\]/.test(path)
-				|| path.startsWith('\\\\');
-		}
-
-		/** Split a path into its directory prefix (through the last separator) and name. */
-		function pathPartsOf(path) {
-			const trimmed = path.replace(/[/\\]+$/, '');
-			if (trimmed === '') return { directory: '', name: path };
-			const cut = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\')) + 1;
-			return { directory: trimmed.slice(0, cut), name: trimmed.slice(cut) };
-		}
-
-		/**
-		 * Address a decoded absolute file path through the authenticated file
-		 * route. Mirrors the built-in Markdown preview's resolver.
-		 */
-		function fileMediaUrl(base, path) {
-			if ((!/^https?:/.test(base) && !base.startsWith('dsh-app://app/'))
-				|| !isAbsoluteWorkspacePath(path)
-				|| /^[/\\]{2}/.test(path)
-				|| /[\u0000-\u001f\u007f]/.test(path)) return undefined;
-			return new URL(`api/file?path=${encodeURIComponent(path)}`, base).href;
-		}
-
-		/**
-		 * Resolve one authored Markdown image destination beside the previewed
-		 * document. HTTP(S), data, and unsupported schemes are left untouched.
-		 */
-		function markdownImageUrl(base, documentPath, destination) {
-			const suffix = destination.search(/[?#]/);
-			let path;
-			try {
-				path = decodeURIComponent(suffix === -1 ? destination : destination.slice(0, suffix));
-			} catch {
-				return undefined;
-			}
-			if (path.length === 0) return undefined;
-			if (!/^[a-z]:[/\\]/i.test(path) && /^[a-z][a-z\d+.-]*:/i.test(path)) return undefined;
-			if (!isAbsoluteWorkspacePath(path)) {
-				if (documentPath === undefined) return undefined;
-				path = pathPartsOf(documentPath).directory + path;
-			}
-			return fileMediaUrl(base, path);
-		}
-
-		/** Split an optional leading YAML frontmatter block from Markdown. */
-		function splitFrontmatter(text) {
-			const match = /^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)\r?\n?/.exec(text);
-			if (match === null) return { frontmatter: undefined, body: text };
-			return { frontmatter: match[1], body: text.slice(match[0].length) };
 		}
 
 		// ── theme and Mermaid rendering ───────────────────────────────────────
@@ -315,36 +203,16 @@ window.__ModuleLoader__.load({
 			};
 		}
 
-		/** Serialize Mermaid renders: the library mutates shared layout state. */
-		function enqueueRender(work) {
-			const next = renderQueue.then(work);
-			renderQueue = next.then(() => undefined, () => undefined);
-			return next;
-		}
-
 		/**
-		 * Render one diagram to an SVG string.
+		 * Render one diagram to an SVG string. The engine caches by source and
+		 * scheme, deduplicates concurrent requests, and enforces a timeout so one
+		 * broken diagram cannot block later cards.
 		 * @param {string} code - Mermaid source.
 		 * @param {string} scheme - `light` or `dark`.
 		 * @returns {Promise<string>} SVG markup.
 		 */
 		function renderMermaidSvg(code, scheme) {
-			return enqueueRender(async () => {
-				mermaid.initialize({
-					startOnLoad: false,
-					securityLevel: 'strict',
-					theme: 'base',
-					themeVariables: mermaidThemeVariables(scheme),
-					flowchart: { htmlLabels: false, useMaxWidth: true },
-					sequence: { useMaxWidth: true },
-					gantt: { useMaxWidth: true },
-					er: { useMaxWidth: true },
-					mindmap: { useMaxWidth: true },
-				});
-				const id = `dsh-mermaid-${++renderSequence}`;
-				const result = await mermaid.render(id, code);
-				return result.svg;
-			});
+			return mermaidRenderer.render(code, scheme);
 		}
 
 		/** Follow the shell's active colour scheme through the theme service. */
@@ -367,10 +235,48 @@ window.__ModuleLoader__.load({
 			return scheme;
 		}
 
-		/** @returns the active locale's translator, or the English dictionary. */
+		/** @returns the active locale's translator, with the English dictionary as fallback. */
 		function useTranslator(props) {
-			const fallback = React.useMemo(() => (key) => EN[key] ?? key, []);
-			return props.t ?? fallback;
+			const t = props.t;
+			return React.useMemo(() => createTranslator(t, EN), [t]);
+		}
+
+		/**
+		 * Contain a card failure inside the plugin. The harness retires a slot
+		 * registration when its component render/effect throws; this boundary
+		 * keeps the chat tail registered and shows the source instead.
+		 */
+		class MermaidBoundary extends React.Component {
+			constructor(props) {
+				super(props);
+				this.state = { error: null };
+			}
+
+			static getDerivedStateFromError(error) {
+				return { error };
+			}
+
+			componentDidCatch(error) {
+				console.error('dsh-mermaid: card crashed:', error);
+			}
+
+			componentDidUpdate(previous) {
+				if (this.state.error !== null && previous.resetKey !== this.props.resetKey) {
+					this.setState({ error: null });
+				}
+			}
+
+			render() {
+				if (this.state.error === null) return this.props.children;
+				const t = typeof this.props.t === 'function' ? this.props.t : (key) => EN[key] ?? key;
+				const message = this.state.error instanceof Error ? this.state.error.message : String(this.state.error);
+				return h('div', { className: 'dsh-mermaid-failure' },
+					h('div', { className: 'dsh-mermaid-error' }, `${t('card.crashed')}: ${message.split('\n')[0]}`),
+					typeof this.props.code === 'string'
+						? h('pre', { className: 'dsh-mermaid-source' }, this.props.code)
+						: null,
+				);
+			}
 		}
 
 		/**
@@ -739,48 +645,49 @@ window.__ModuleLoader__.load({
 			));
 		}
 
+		/**
+		 * Entry wrapper for the expanded view. It observes the overlay store so a
+		 * crashed boundary is reset on the next open/close instead of retiring the
+		 * whole `shell.overlay` registration.
+		 */
+		function MermaidOverlayEntry(props) {
+			const [state, setState] = React.useState(getOverlayState);
+			React.useEffect(() => subscribeOverlay(() => setState(getOverlayState())), []);
+			return h(MermaidBoundary, { t: props.t, resetKey: state },
+				h(MermaidOverlay, props));
+		}
+
 		// ── chat surface ──────────────────────────────────────────────────────
-		/** Closing assistant text blocks of one Turn. */
-		function closingBlocks(turn) {
-			try {
-				const tail = turn?.data?.get?.('turn-tail');
-				const closing = tail?.closing;
-				if (closing === undefined) return [];
-				if (Array.isArray(closing.finalNode?.blocks)) return closing.finalNode.blocks;
-				if (Array.isArray(closing.blocks)) return closing.blocks;
-				return [];
-			} catch {
-				return [];
-			}
-		}
-
-		/** Every Mermaid diagram carried by the closing assistant message. */
-		function turnDiagrams(turn) {
-			const diagrams = [];
-			for (const block of closingBlocks(turn)) {
-				if (block?.kind === 'text' && typeof block.text === 'string') {
-					diagrams.push(...mermaidBlocks(block.text));
-				}
-			}
-			return diagrams;
-		}
-
 		/**
 		 * `conversation.chat.turnTail` entry. The owner supplies the Turn, so the
 		 * plugin reads durable message blocks instead of watching the DOM.
 		 */
 		function ChatMermaidTail(props) {
+			return h(MermaidBoundary, {
+				t: props.t,
+				resetKey: props.seq ?? props.turn,
+			}, h(ChatMermaidTailBody, props));
+		}
+
+		/** Inner tail: every unique diagram from every assistant text block. */
+		function ChatMermaidTailBody(props) {
 			const scheme = useColorScheme(props);
-			const diagrams = React.useMemo(() => turnDiagrams(props.turn), [props.turn]);
+			// Read on every render: Turn data can be updated in place, so memoizing
+			// on the Turn identity alone would miss a late `turn-tail` mutation.
+			const diagrams = turnDiagrams(props.turn);
 			if (diagrams.length === 0) return null;
 			return h('div', { className: 'dsh-mermaid-tail' },
-				diagrams.map((code, index) => h(MermaidCard, {
+				diagrams.map((code, index) => h(MermaidBoundary, {
 					key: `${index}-${code.length}`,
+					resetKey: `${index}\u0000${code}`,
+					code,
+					t: props.t,
+				}, h(MermaidCard, {
 					code,
 					scheme,
 					t: props.t,
 					variant: 'chat',
-				})),
+				}))),
 			);
 		}
 
@@ -865,6 +772,16 @@ window.__ModuleLoader__.load({
 					});
 				}),
 			);
+		}
+
+		/**
+		 * Entry wrapper for the Markdown body. A rendering crash in the harness's
+		 * Markdown primitive must not retire the document slot.
+		 */
+		function MarkdownMermaidBodyEntry(props) {
+			const resetKey = `${props.resourceAddress ?? ''}\u0000${props.content?.kind === 'text' ? props.content.text.length : 0}`;
+			return h(MermaidBoundary, { t: props.t, resetKey },
+				h(MarkdownMermaidBody, props));
 		}
 
 		// ── styles ────────────────────────────────────────────────────────────
@@ -954,11 +871,18 @@ html[data-windows-titlebar]:not([data-fullscreen]) .dsh-mermaid-overlay { paddin
 
 			// Entry-level injection: the shell gives slot components no theme
 			// handle, so the plugin supplies its own plus a change subscription.
-			const themeInject = () => ({
-				theme: ctx.get('theme'),
+			// The binding and its callbacks are created once: a fresh
+			// `onThemeChange` on every host render would resubscribe every card.
+			const themeBinding = {
+				get theme() {
+					return ctx.get('theme');
+				},
 				onThemeChange: (listener) => ctx.on('theme/change', listener),
 				t: translate,
-			});
+			};
+			const themeInject = () => themeBinding;
+			const overlayBinding = { t: translate };
+			const overlayInject = () => overlayBinding;
 
 			ctx.effect(() => ctx.slots.inject(CHAT_SLOT, () => ctx.slots.register({
 				name: CHAT_SLOT,
@@ -974,8 +898,8 @@ html[data-windows-titlebar]:not([data-fullscreen]) .dsh-mermaid-overlay { paddin
 				name: OVERLAY_SLOT,
 				id: OVERLAY_ID,
 				order: 100,
-				inject: () => ({ t: translate }),
-			}, MermaidOverlay)), 'dsh-mermaid: expanded diagram overlay');
+				inject: overlayInject,
+			}, MermaidOverlayEntry)), 'dsh-mermaid: expanded diagram overlay');
 
 			const previews = ctx.get('documentPreviews');
 			if (previews === undefined) {
@@ -994,7 +918,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) .dsh-mermaid-overlay { paddin
 				key: MARKDOWN_BODY_ID,
 				priority: -1,
 				inject: themeInject,
-			}, MarkdownMermaidBody)), 'dsh-mermaid: Markdown body override');
+			}, MarkdownMermaidBodyEntry)), 'dsh-mermaid: Markdown body override');
 		}
 
 		return {
@@ -1003,7 +927,7 @@ html[data-windows-titlebar]:not([data-fullscreen]) .dsh-mermaid-overlay { paddin
 			// Kept for the artifact test: fence parsing is the one piece of logic
 			// whose failure would silently hide a diagram, so it is asserted
 			// directly without a browser.
-			__test: { splitMermaid, mermaidBlocks, splitFrontmatter, markdownImageUrl },
+			__test: { splitMermaid, mermaidBlocks, splitFrontmatter, markdownImageUrl, turnDiagrams },
 		};
 	},
 });

@@ -56,12 +56,25 @@ vm.runInNewContext(artifact, sandbox, { filename: 'lib/client.js' });
 assert.equal(definitions.length, 1, 'the artifact registers one module');
 assert.equal(definitions[0].id, 'dsh-mermaid', 'module id is the package name');
 
+class Component {
+	constructor(props) {
+		this.props = props ?? {};
+		this.state = {};
+	}
+
+	setState(update) {
+		const next = typeof update === 'function' ? update(this.state, this.props) : update;
+		this.state = { ...this.state, ...next };
+	}
+}
+
 const React = {
-  createElement(type, props, ...children) { return { type, props, children }; },
-  useState(value) { return [value, () => {}]; },
-  useEffect() {},
-  useMemo(factory) { return factory(); },
-  useCallback(callback) { return callback; },
+	Component,
+	createElement(type, props, ...children) { return { type, props, children }; },
+	useState(value) { return [typeof value === 'function' ? value() : value, () => {}]; },
+	useEffect() {},
+	useMemo(factory) { return factory(); },
+	useCallback(callback) { return callback; },
 };
 const moduleExports = definitions[0].factory((id) => {
   if (id === 'react') return React;
@@ -126,7 +139,7 @@ assert.equal(previews.length, 0, 'does not add a second document-preview impleme
 assert.equal(dictionaries.length, 1, 'registers the English dictionary');
 assert.ok(styleTags.length === 1, 'installs one stylesheet');
 
-const { splitMermaid, mermaidBlocks, splitFrontmatter, markdownImageUrl } = moduleExports.__test;
+const { splitMermaid, mermaidBlocks, splitFrontmatter, markdownImageUrl, turnDiagrams } = moduleExports.__test;
 
 const mixed = [
   '# Diagram',
@@ -168,5 +181,12 @@ assert.equal(
 );
 assert.equal(markdownImageUrl(base, documentPath, 'https://example.com/a.png'), undefined);
 assert.equal(markdownImageUrl(base, undefined, 'examples/flowchart.png'), undefined);
+
+const turnWithDiagram = {
+  steps: [{
+    data: new Map([['assistant-step', { blocks: [{ kind: 'text', text: mixed }] }]]),
+  }],
+};
+assert.deepEqual([...turnDiagrams(turnWithDiagram)], ['flowchart LR\n  A --> B']);
 
 console.log('artifact contract, fence parser, and image resolver: ok');

@@ -23,6 +23,7 @@
     "index.js",
     "lib/client.js",
     "cordis.patch.yml",
+    "assets",
     "locale/*.json",
     "icon.svg",
     "README.md",
@@ -46,7 +47,7 @@
   },
   "scripts": {
     "build": "node build.mjs",
-    "test": "node tests/load-artifact.mjs"
+    "test": "node --test tests/*.test.mjs && node tests/load-artifact.mjs"
   },
   "devDependencies": {
     "dompurify": "^3.4.13",
